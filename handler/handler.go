@@ -261,6 +261,10 @@ func ExecuteMySQLQuery(query string) bool {
 	// It should be read from setting file.
 	rootPassword := "android1987"
 
+	if true {
+		return true
+	}
+
 	// mysql -uroot -p${rootpasswd} -e
 	command := fmt.Sprintf("mysql -uroot -p%s -e \"%s\"", rootPassword, query)
 	log.Println(command)
@@ -331,20 +335,86 @@ func (h *profileHandler) ChangePhpVersion(c *gin.Context) {
 	})
 }
 
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true
+	}
+	if os.IsNotExist(err) {
+		return false
+	}
+	return false
+}
+
 func (h *profileHandler) AddSSHKey(c *gin.Context) {
+	metadata, err := h.tk.ExtractTokenMetadata(c.Request)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	userId, err := h.rd.FetchAuth(metadata.TokenUuid)
+	_ = userId
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
 	mapToken := map[string]string{}
 	if err := c.ShouldBindJSON(&mapToken); err != nil {
 		c.JSON(http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 
-	// username := mapToken["username"]
-	// label := mapToken["label"]
-	// key := mapToken["key"]
+	is_vaulted, _ := strconv.ParseBool(mapToken["is_vaulted"])
+	username := mapToken["user"]
+	_ = mapToken["label"]
 
-	c.JSON(http.StatusCreated, map[string]bool{
-		"success": true,
-	})
+	bitSize := 3072
+	if is_vaulted {
+		privateKey, err := generatePrivateKey(bitSize)
+		if err != nil {
+			c.JSON(http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+
+		publicKeyBytes, err := generatePublicKey(&privateKey.PublicKey)
+		if err != nil {
+			c.JSON(http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+
+		privateKeyBytes := encodePrivateKeyToPEM(privateKey)
+
+		stringPrivate := string(privateKeyBytes[:])
+		stringPublic := string(publicKeyBytes[:])
+
+		if !exists("/home/" + username + "/.ssh") {
+			ExecuteCommand("mkdir /home/" + username + "/.ssh")
+		}
+
+		ExecuteCommand("echo '" + stringPublic + "' >> /home/" + username + "/.ssh/authorized_keys")
+		fmt.Println("echo '" + stringPublic + "' >> /home/" + username + "/.ssh/authorized_keys")
+		c.JSON(http.StatusCreated, map[string]string{
+			"success":     strconv.FormatBool(true),
+			"private_key": stringPrivate,
+		})
+	} else {
+		public_key := mapToken["public_key"]
+
+		if !exists("/home/" + username + "/.ssh") {
+			ExecuteCommand("mkdir /home/" + username + "/.ssh")
+		}
+
+		ExecuteCommand("echo '" + public_key + "' >> /home/" + username + "/.ssh/authorized_keys")
+		fmt.Println("echo '" + public_key + "' >> /home/" + username + "/.ssh/authorized_keys")
+		c.JSON(http.StatusCreated, map[string]string{
+			"success": strconv.FormatBool(true),
+		})
+	}
+
+	// c.JSON(http.StatusCreated, map[string]string{
+	// 	"success": strconv.FormatBool(true),
+	// })
 }
 
 func generatePrivateKey(bitSize int) (*rsa.PrivateKey, error) {
@@ -408,13 +478,25 @@ func writeKeyToFile(keyBytes []byte, saveFileTo string) error {
 }
 
 func (h *profileHandler) AddDeploymentKey(c *gin.Context) {
+	metadata, err := h.tk.ExtractTokenMetadata(c.Request)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	userId, err := h.rd.FetchAuth(metadata.TokenUuid)
+	_ = userId
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
 	mapToken := map[string]string{}
 	if err := c.ShouldBindJSON(&mapToken); err != nil {
 		c.JSON(http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 
-	username := mapToken["name"]
+	username := mapToken["user"]
 	// password := mapToken["password"]
 	// log.Println(fmt.Sprintf("Add SSH key, username: %s, password: %s", username, password))
 	////////////////////////////////////////////////////
@@ -436,7 +518,10 @@ func (h *profileHandler) AddDeploymentKey(c *gin.Context) {
 
 	privateKeyBytes := encodePrivateKeyToPEM(privateKey)
 
-	ExecuteCommand("mkdir /home/" + username + "/.ssh")
+	if !exists("/home/" + username + "/.ssh") {
+		ExecuteCommand("mkdir /home/" + username + "/.ssh")
+	}
+
 	err = writeKeyToFile(privateKeyBytes, savePrivateFileTo)
 	if err != nil {
 		c.JSON(http.StatusUnprocessableEntity, err.Error())
