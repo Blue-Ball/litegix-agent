@@ -150,7 +150,7 @@ func (h *profileHandler) Refresh(c *gin.Context) {
 			return
 		}
 		userId, roleOk := claims["user_id"].(string)
-		if roleOk == false {
+		if !roleOk {
 			c.JSON(http.StatusUnprocessableEntity, "unauthorized")
 			return
 		}
@@ -322,7 +322,14 @@ func (h *profileHandler) CreateDatabaseUser(c *gin.Context) {
 	log.Println(query)
 	result = ExecuteMySQLQuery(query)
 
-	query = fmt.Sprintf("FLUSH PRIVILEGES;")
+	if !result {
+		c.JSON(http.StatusCreated, map[string]bool{
+			"success": result,
+		})
+		return
+	}
+
+	query = "FLUSH PRIVILEGES;"
 	log.Println(query)
 	result = ExecuteMySQLQuery(query)
 
@@ -562,6 +569,57 @@ func (h *profileHandler) AddDeploymentKey(c *gin.Context) {
 }
 
 func (h *profileHandler) CreateCronJob(c *gin.Context) {
+	metadata, err := h.tk.ExtractTokenMetadata(c.Request)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	userId, err := h.rd.FetchAuth(metadata.TokenUuid)
+	_ = userId
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	mapToken := map[string]string{}
+	if err := c.ShouldBindJSON(&mapToken); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+
+	cron_title := mapToken["title"]
+	cron_schedule := mapToken["cron_schedule"]
+	cron_job := mapToken["cron_job"]
+	_ = cron_title
+
+	if !ExecuteCommand("systemctl enable cron") {
+		c.JSON(http.StatusCreated, map[string]bool{
+			"success": false,
+		})
+		return
+	}
+
+	if !ExecuteCommand("printf \"\n\" >> /etc/crontab") {
+		c.JSON(http.StatusCreated, map[string]bool{
+			"success": false,
+		})
+		return
+	}
+	if !ExecuteCommand("printf \"" + cron_schedule + " root " + cron_job + "\" >> /etc/crontab") {
+		c.JSON(http.StatusCreated, map[string]bool{
+			"success": false,
+		})
+		return
+	}
+
+	c.JSON(http.StatusCreated, map[string]bool{
+		"success": true,
+	})
+}
+
+func (h *profileHandler) CreateSuperVisor(c *gin.Context) {
+	// should install
+	// apt-get install supervisor
 	metadata, err := h.tk.ExtractTokenMetadata(c.Request)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, "unauthorized")

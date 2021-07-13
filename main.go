@@ -59,7 +59,7 @@ func main() {
 	router.POST("/sshkey/create", middleware.TokenAuthMiddleware(), service.AddSSHKey)
 	router.POST("/deploymentkey/create", middleware.TokenAuthMiddleware(), service.AddDeploymentKey)
 	router.POST("/cronjob/create", middleware.TokenAuthMiddleware(), service.CreateCronJob)
-	router.POST("/supervisorjob/create", middleware.TokenAuthMiddleware(), service.CreateCronJob)
+	router.POST("/supervisorjob/create", middleware.TokenAuthMiddleware(), service.CreateSuperVisor)
 	router.POST("/firewall/addrule", middleware.TokenAuthMiddleware(), service.AddFirewallRule)
 
 	srv := &http.Server{
