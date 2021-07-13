@@ -20,6 +20,7 @@ import (
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/ssh"
+	"gopkg.in/gcfg.v1"
 )
 
 // ProfileHandler struct
@@ -259,11 +260,22 @@ func ExecuteCommand(command string) bool {
 
 func ExecuteMySQLQuery(query string) bool {
 	// It should be read from setting file.
-	rootPassword := "android1987"
+	// rootPassword := "android1987"
+	rootPassword := "android19871111"
 
-	if true {
-		return true
+	mysqlConf := struct {
+		Client struct {
+			User     string
+			Password string
+		}
+	}{}
+
+	err := gcfg.ReadFileInto(&mysqlConf, "/etc/mysql/conf.d/root.cnf")
+	if err != nil {
+		log.Fatalf("Failed to parse gcfg data: %s", err)
 	}
+	// toml.DecodeFile("/etc/mysql/conf.d/root.cnf", mysqlConf)
+	rootPassword = mysqlConf.Client.Password
 
 	// mysql -uroot -p${rootpasswd} -e
 	command := fmt.Sprintf("mysql -uroot -p%s -e \"%s\"", rootPassword, query)
