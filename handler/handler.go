@@ -338,9 +338,16 @@ func (h *profileHandler) ChangePhpVersion(c *gin.Context) {
 		return
 	}
 
-	username := mapToken["name"]
-	password := mapToken["password"]
-	log.Println(fmt.Sprintf("Change PHP version, username: %s, password: %s", username, password))
+	php_version := mapToken["php_version"]
+	log.Println(fmt.Sprintf("Change PHP version, php_version: %s", php_version))
+
+	result := ExecuteCommand("update-alternatives --set php /usr/bin/" + php_version)
+	if !result {
+		c.JSON(http.StatusCreated, map[string]bool{
+			"success": false,
+		})
+		return
+	}
 
 	c.JSON(http.StatusCreated, map[string]bool{
 		"success": true,
