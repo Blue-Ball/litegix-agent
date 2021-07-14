@@ -638,29 +638,56 @@ func (h *profileHandler) CreateSuperVisor(c *gin.Context) {
 		return
 	}
 
-	cron_title := mapToken["title"]
-	cron_schedule := mapToken["cron_schedule"]
-	cron_job := mapToken["cron_job"]
-	_ = cron_title
+	job_name := mapToken["job_name"]
+	username := mapToken["user"]
+	auto_restart, _ := strconv.ParseBool(mapToken["auto_restart"])
+	auto_start, _ := strconv.ParseBool(mapToken["auto_start"])
+	num_procs, _ := strconv.Atoi(mapToken["num_procs"])
+	vendor_binary := mapToken["vendor_binary"]
+	directory := mapToken["directory"]
+	command := mapToken["command"]
 
-	if !ExecuteCommand("systemctl enable cron") {
+	if job_name == "" || username == "" || num_procs <= 0 || (vendor_binary == "" && command == "") {
 		c.JSON(http.StatusCreated, map[string]bool{
 			"success": false,
 		})
 		return
 	}
 
-	if !ExecuteCommand("printf \"\n\" >> /etc/crontab") {
+	if !ExecuteCommand("service supervisor restart") {
 		c.JSON(http.StatusCreated, map[string]bool{
 			"success": false,
 		})
 		return
 	}
-	if !ExecuteCommand("printf \"" + cron_schedule + " root " + cron_job + "\" >> /etc/crontab") {
-		c.JSON(http.StatusCreated, map[string]bool{
-			"success": false,
-		})
-		return
+
+	confFilePath := "/etc/supervisor/conf.d/" + job_name + ".conf"
+	var confContent string
+	if vendor_binary != "" {
+		confContent = "[program:" + job_name + "_vendor]\n" +
+			"command=" + vendor_binary + "\n" +
+			"user=" + username + "\n" +
+			"autostart=" + strconv.FormatBool(auto_start) + "\n" +
+			"autorestart=" + strconv.FormatBool(auto_restart) + "\n" +
+			"numprocs=" + strconv.Itoa(num_procs) + "\n" +
+			"directory=" + directory + "\n"
+		if !ExecuteCommand("echo '" + confContent + "' >> " + confFilePath) {
+			c.JSON(http.StatusCreated, map[string]bool{
+				"success": false,
+			})
+			return
+		}
+	}
+
+	if command != "" {
+		confContent = "[program:" + job_name + "_command]\n" +
+			"command=" + command + "\n"
+		if !ExecuteCommand("echo '" + confContent + "' >> " + confFilePath) {
+			c.JSON(http.StatusCreated, map[string]bool{
+				"success": false,
+			})
+			return
+		}
 	}
 
 	c.JSON(http.StatusCreated, map[string]bool{
