@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -790,5 +791,241 @@ func (h *profileHandler) AddFirewallRule(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, map[string]bool{
 		"success": result,
+	})
+}
+
+func ExecuteCommand_WithResult(command string) (string, error) {
+
+	// cmd := exec.Command("sh", "-c", "systemctl list-units --all --type=service --no-pager | grep -i 'redis'")
+	// cmd := exec.Command("sh", "-c", "systemctl status redis-server | grep 'Main PID:'")
+	// cmd := exec.Command("sh", "-c", "dpkg -s redis-server | grep Version")
+	// cmd := exec.Command("sh", "-c", "pidstat -p 864 -r | grep 864")
+	// cmd := exec.Command("sh", "-c", "pidstat -p 864 -u | grep 864")
+	cmd := exec.Command("sh", "-c", command)
+	stdoutStderr, err := cmd.CombinedOutput()
+
+	if err != nil {
+		return "", err
+	}
+
+	var strReturn = strings.TrimSpace(string(stdoutStderr))
+	return strReturn, err
+}
+
+func (h *profileHandler) ViewServices(c *gin.Context) {
+	metadata, err := h.tk.ExtractTokenMetadata(c.Request)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	userId, err := h.rd.FetchAuth(metadata.TokenUuid)
+	_ = userId
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	mapToken := map[string]string{}
+	if err := c.ShouldBindJSON(&mapToken); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+
+	// if !ExecuteCommand("ufw enable") {
+	// 	c.JSON(http.StatusCreated, map[string]bool{
+	// 		"success": false,
+	// 	})
+	// 	return
+	// }
+
+	// f_type := mapToken["type"]
+	// f_from_port := mapToken["from_port"]
+	// f_end_port := mapToken["end_port"]
+	// f_ip_address := mapToken["ip_address"]
+	// f_protocol := strings.ToLower(mapToken["protocol"])
+	// f_action := strings.ToLower(mapToken["action"])
+	type StructService struct {
+		Process string `json:"process"`
+		Name    string `json:"name"`
+		Version string `json:"version"`
+		State   string `json:"state"`
+		Cpu     string `json:"cpu"`
+		Mem     string `json:"mem"`
+	}
+
+	var serviceArray [4]StructService
+	var processName string
+	var processID string
+
+	// apache
+	nIndex := 0
+	serviceArray[nIndex].Name = "HTTPD/APACHE"
+	strTemp, _ := ExecuteCommand_WithResult("systemctl list-units --all --type=service --no-pager | grep -i 'apache'")
+	if strTemp != "" {
+		arrayStringTemp := strings.Fields(strTemp)
+		serviceArray[nIndex].Process = strings.ReplaceAll(arrayStringTemp[0], ".service", "")
+		serviceArray[nIndex].State = arrayStringTemp[3]
+		processName = serviceArray[nIndex].Process
+
+		strTemp, _ = ExecuteCommand_WithResult("dpkg -s " + processName + " | grep Version")
+		if strTemp != "" {
+			serviceArray[nIndex].Version = strings.ReplaceAll(strTemp, "Version: ", "")
+		}
+
+		if arrayStringTemp[3] == "running" {
+			strTemp, _ = ExecuteCommand_WithResult("systemctl status " + processName + " | grep 'Main PID:'")
+			if strTemp != "" {
+				arrayStringTemp = strings.Fields(strings.ReplaceAll(strTemp, "Main PID: ", ""))
+				processID = arrayStringTemp[0]
+			}
+
+			if processID != "" {
+				strTemp, _ = ExecuteCommand_WithResult("pidstat -u | grep " + processID)
+				if strTemp != "" {
+					arrayStringTemp = strings.Fields(strTemp)
+					serviceArray[nIndex].Cpu = arrayStringTemp[7]
+				}
+			}
+
+			if processID != "" {
+				strTemp, _ = ExecuteCommand_WithResult("pidstat -r | grep " + processID)
+				if strTemp != "" {
+					arrayStringTemp = strings.Fields(strTemp)
+					serviceArray[nIndex].Mem = arrayStringTemp[7]
+				}
+			}
+		}
+	}
+
+	// mariadb
+	// should change mariadb-server in getting pid
+	processID = ""
+	nIndex++
+	serviceArray[nIndex].Name = "MARIADB"
+	strTemp, _ = ExecuteCommand_WithResult("systemctl list-units --all --type=service --no-pager | grep -i 'mariadb'")
+	if strTemp != "" {
+		arrayStringTemp := strings.Fields(strTemp)
+		serviceArray[nIndex].Process = strings.ReplaceAll(arrayStringTemp[0], ".service", "")
+		serviceArray[nIndex].State = arrayStringTemp[3]
+		processName = serviceArray[nIndex].Process
+
+		strTemp, _ = ExecuteCommand_WithResult("dpkg -s mariadb-server | grep Version")
+		if strTemp != "" {
+			serviceArray[nIndex].Version = strings.ReplaceAll(strTemp, "Version: ", "")
+		}
+
+		if arrayStringTemp[3] == "running" {
+			strTemp, _ = ExecuteCommand_WithResult("systemctl status " + processName + " | grep 'Main PID:'")
+			if strTemp != "" {
+				arrayStringTemp = strings.Fields(strings.ReplaceAll(strTemp, "Main PID: ", ""))
+				processID = arrayStringTemp[0]
+			}
+
+			if processID != "" {
+				strTemp, _ = ExecuteCommand_WithResult("pidstat -u | grep " + processID)
+				if strTemp != "" {
+					arrayStringTemp = strings.Fields(strTemp)
+					serviceArray[nIndex].Cpu = arrayStringTemp[7]
+				}
+			}
+
+			if processID != "" {
+				strTemp, _ = ExecuteCommand_WithResult("pidstat -r | grep " + processID)
+				if strTemp != "" {
+					arrayStringTemp = strings.Fields(strTemp)
+					serviceArray[nIndex].Mem = arrayStringTemp[7]
+				}
+			}
+		}
+	}
+
+	// redis
+	processID = ""
+	nIndex++
+	serviceArray[nIndex].Name = "REDIS"
+	strTemp, _ = ExecuteCommand_WithResult("systemctl list-units --all --type=service --no-pager | grep -i 'redis'")
+	if strTemp != "" {
+		arrayStringTemp := strings.Fields(strTemp)
+		serviceArray[nIndex].Process = strings.ReplaceAll(arrayStringTemp[0], ".service", "")
+		serviceArray[nIndex].State = arrayStringTemp[3]
+		processName = serviceArray[nIndex].Process
+
+		strTemp, _ = ExecuteCommand_WithResult("dpkg -s " + processName + " | grep Version")
+		if strTemp != "" {
+			serviceArray[nIndex].Version = strings.ReplaceAll(strTemp, "Version: ", "")
+		}
+
+		if arrayStringTemp[3] == "running" {
+			strTemp, _ = ExecuteCommand_WithResult("systemctl status " + processName + " | grep 'Main PID:'")
+			if strTemp != "" {
+				arrayStringTemp = strings.Fields(strings.ReplaceAll(strTemp, "Main PID: ", ""))
+				processID = arrayStringTemp[0]
+			}
+
+			if processID != "" {
+				strTemp, _ = ExecuteCommand_WithResult("pidstat -u | grep " + processID)
+				if strTemp != "" {
+					arrayStringTemp = strings.Fields(strTemp)
+					serviceArray[nIndex].Cpu = arrayStringTemp[7]
+				}
+			}
+
+			if processID != "" {
+				strTemp, _ = ExecuteCommand_WithResult("pidstat -r | grep " + processID)
+				if strTemp != "" {
+					arrayStringTemp = strings.Fields(strTemp)
+					serviceArray[nIndex].Mem = arrayStringTemp[7]
+				}
+			}
+		}
+	}
+
+	// supervisor
+	processID = ""
+	nIndex++
+	serviceArray[nIndex].Name = "SUPERVISOR"
+	strTemp, _ = ExecuteCommand_WithResult("systemctl list-units --all --type=service --no-pager | grep -i 'supervisor'")
+	if strTemp != "" {
+		arrayStringTemp := strings.Fields(strTemp)
+		serviceArray[nIndex].Process = strings.ReplaceAll(arrayStringTemp[0], ".service", "")
+		serviceArray[nIndex].State = arrayStringTemp[3]
+		processName = serviceArray[nIndex].Process
+
+		strTemp, _ = ExecuteCommand_WithResult("dpkg -s " + processName + " | grep Version")
+		if strTemp != "" {
+			serviceArray[nIndex].Version = strings.ReplaceAll(strTemp, "Version: ", "")
+		}
+
+		if arrayStringTemp[3] == "running" {
+			strTemp, _ = ExecuteCommand_WithResult("systemctl status " + processName + " | grep 'Main PID:'")
+			if strTemp != "" {
+				arrayStringTemp = strings.Fields(strings.ReplaceAll(strTemp, "Main PID: ", ""))
+				processID = arrayStringTemp[0]
+			}
+
+			if processID != "" {
+				strTemp, _ = ExecuteCommand_WithResult("pidstat -u | grep " + processID)
+				if strTemp != "" {
+					arrayStringTemp = strings.Fields(strTemp)
+					serviceArray[nIndex].Cpu = arrayStringTemp[7]
+				}
+			}
+
+			if processID != "" {
+				strTemp, _ = ExecuteCommand_WithResult("pidstat -r | grep " + processID)
+				if strTemp != "" {
+					arrayStringTemp = strings.Fields(strTemp)
+					serviceArray[nIndex].Mem = arrayStringTemp[7]
+				}
+			}
+		}
+	}
+
+	services, _ := json.Marshal(serviceArray)
+
+	c.JSON(http.StatusCreated, map[string]string{
+		"success":  "true",
+		"services": string(services),
+		// "temp": strTemp,
 	})
 }
